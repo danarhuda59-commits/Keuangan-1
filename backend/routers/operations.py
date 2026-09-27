@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, List
 from pydantic import BaseModel
-from core import (db, Q, new_id, now_iso, today_str, strip, num, current_user, audit, post_inventory, post_cash, reverse_ref,
+from core import (db, Q, new_id, now_iso, today_str, TZ, strip, num, current_user, audit, post_inventory, post_cash, reverse_ref,
                   next_number, compute_hpp, load_materials, load_conversions, get_recipe_items, expand_items, convert_to_usage, price_per_usage, date_range)
 
 router = APIRouter(tags=["operations"])
@@ -197,6 +197,39 @@ async def list_purchases(user=Depends(current_user), start: str = "", end: str =
 @router.post("/purchases")
 async def create_purchase(body: PurchaseIn, user=Depends(current_user)):
     bid = user["business_id"]
+    pid = new_id()
+    number = await next_number(bid, "PO")
+    doc = await apply_purchase(bid, body, user, pid, number)
+    await db.purchases.insert_one(dict(doc))
+    await audit(bid, user, "create", "purchases", pid, {"number": number, "total": doc["total"]})
+    return doc
+
+
+async def revert_purchase_effects(bid, pid, user):
+    await reverse_ref(bid, "purchase", pid, user)
+    hist = await db.material_price_history.find({"purchase_id": pid}, {"_id": 0, "material_id": 1}).to_list(500)
+    await db.material_price_history.delete_many({"purchase_id": pid})
+    for mid in {h["material_id"] for h in hist}:
+        latest = await db.material_price_history.find({"business_id": bid, "material_id": mid}, {"_id": 0}).sort([("date", -1), ("created_at", -1)]).to_list(1)
+        if latest:
+            await db.raw_materials.update_one({"id": mid}, {"$set": {"last_price": latest[0]["price"]}})
+
+
+@router.put("/purchases/{pid}")
+async def update_purchase(pid: str, body: PurchaseIn, user=Depends(current_user)):
+    bid = user["business_id"]
+    old = await db.purchases.find_one(Q(bid, id=pid), {"_id": 0})
+    if not old:
+        raise HTTPException(404, "Pembelian tidak ditemukan")
+    await revert_purchase_effects(bid, pid, user)
+    doc = await apply_purchase(bid, body, user, pid, old["number"])
+    doc["created_at"], doc["updated_at"] = old["created_at"], now_iso()
+    await db.purchases.replace_one({"id": pid}, dict(doc))
+    await audit(bid, user, "update", "purchases", pid, {"number": old["number"], "total": doc["total"]})
+    return doc
+
+
+async def apply_purchase(bid, body: PurchaseIn, user, pid, number):
     if not body.items:
         raise HTTPException(400, "Pembelian harus memiliki minimal satu bahan")
     num(body.discount, "Diskon")
@@ -221,8 +254,6 @@ async def create_purchase(body: PurchaseIn, user=Depends(current_user)):
     total = subtotal - body.discount + body.extra_cost
     if total < 0:
         raise HTTPException(400, "Total pembelian tidak boleh negatif")
-    pid = new_id()
-    number = await next_number(bid, "PO")
     for it in items:
         m = materials[it["material_id"]]
         cf = float(m.get("conversion_factor") or 1)
@@ -241,8 +272,6 @@ async def create_purchase(body: PurchaseIn, user=Depends(current_user)):
     doc = {"id": pid, "business_id": bid, "number": number, "date": date, "supplier_id": body.supplier_id, "supplier_name": supplier["name"] if supplier else "-",
            "items": items, "subtotal": round(subtotal, 2), "discount": body.discount, "extra_cost": body.extra_cost, "total": round(total, 2), "paid_amount": round(paid_amount, 2),
            "payment_method": body.payment_method, "payment_status": body.payment_status, "cash_account_id": body.cash_account_id, "notes": body.notes or "", "created_by": user["id"], "created_at": now_iso()}
-    await db.purchases.insert_one(dict(doc))
-    await audit(bid, user, "create", "purchases", pid, {"number": number, "total": total})
     return doc
 
 
@@ -273,8 +302,7 @@ async def delete_purchase(pid: str, user=Depends(current_user)):
     bid = user["business_id"]
     if not await db.purchases.find_one(Q(bid, id=pid)):
         raise HTTPException(404, "Pembelian tidak ditemukan")
-    await reverse_ref(bid, "purchase", pid, user)
-    await db.material_price_history.delete_many({"purchase_id": pid})
+    await revert_purchase_effects(bid, pid, user)
     await db.purchases.update_one({"id": pid}, {"$set": {"is_deleted": True, "deleted_at": now_iso()}})
     await audit(bid, user, "delete", "purchases", pid)
     return {"ok": True}
@@ -313,6 +341,29 @@ async def list_sales(user=Depends(current_user), start: str = "", end: str = "",
 @router.post("/sales")
 async def create_sale(body: SaleIn, user=Depends(current_user)):
     bid = user["business_id"]
+    sid = new_id()
+    number = await next_number(bid, "SL")
+    doc = await apply_sale(bid, body, user, sid, number)
+    await db.sales.insert_one(dict(doc))
+    await audit(bid, user, "create", "sales", sid, {"number": number, "total": doc["net_total"]})
+    return doc
+
+
+@router.put("/sales/{sid}")
+async def update_sale(sid: str, body: SaleIn, user=Depends(current_user)):
+    bid = user["business_id"]
+    old = await db.sales.find_one(Q(bid, id=sid), {"_id": 0})
+    if not old:
+        raise HTTPException(404, "Penjualan tidak ditemukan")
+    await reverse_ref(bid, "sale", sid, user)
+    doc = await apply_sale(bid, body, user, sid, old["number"])
+    doc["created_at"], doc["updated_at"] = old["created_at"], now_iso()
+    await db.sales.replace_one({"id": sid}, dict(doc))
+    await audit(bid, user, "update", "sales", sid, {"number": old["number"], "total": doc["net_total"]})
+    return doc
+
+
+async def apply_sale(bid, body: SaleIn, user, sid, number):
     if not body.items:
         raise HTTPException(400, "Penjualan harus memiliki minimal satu produk")
     for f, n in ((body.discount, "Diskon"), (body.platform_fee, "Biaya platform"), (body.service_fee, "Biaya layanan"), (body.other_fee, "Biaya lainnya")):
@@ -341,8 +392,6 @@ async def create_sale(body: SaleIn, user=Depends(current_user)):
     net = total - body.platform_fee - body.service_fee - body.other_fee
     if total < 0:
         raise HTTPException(400, "Total penjualan tidak boleh negatif")
-    sid = new_id()
-    number = await next_number(bid, "SL")
     for it in items:
         await post_inventory(bid, "product", it["product_id"], -it["qty"], "sale", it["hpp_unit"], "sale", sid, f"Penjualan {number}", date, user=user)
     if net > 0:
@@ -351,8 +400,6 @@ async def create_sale(body: SaleIn, user=Depends(current_user)):
            "gross_total": round(gross, 2), "discount": body.discount, "total": round(total, 2), "platform_fee": body.platform_fee, "service_fee": body.service_fee, "other_fee": body.other_fee,
            "net_total": round(net, 2), "total_hpp": round(total_hpp, 2), "profit": round(net - total_hpp, 2), "qty_total": sum(i["qty"] for i in items),
            "payment_method": body.payment_method, "cash_account_id": body.cash_account_id, "notes": body.notes or "", "created_by": user["id"], "created_at": now_iso()}
-    await db.sales.insert_one(dict(doc))
-    await audit(bid, user, "create", "sales", sid, {"number": number, "total": net})
     return doc
 
 
@@ -425,6 +472,35 @@ async def delete_expense(eid: str, user=Depends(current_user)):
     await db.expenses.update_one({"id": eid}, {"$set": {"is_deleted": True, "deleted_at": now_iso()}})
     await audit(bid, user, "delete", "expenses", eid)
     return {"ok": True}
+
+
+@router.get("/alerts/stock")
+async def stock_alerts(user=Depends(current_user), cover_days: int = 14):
+    """Daily low-stock alert list with suggested reorder qty based on last 30 days usage."""
+    bid = user["business_id"]
+    from datetime import datetime, timedelta
+    since = (datetime.now(TZ).date() - timedelta(days=30)).isoformat()
+    txs = await db.inventory_transactions.find({"business_id": bid, "direction": "out", "reason": {"$in": ["production", "sale"]}, "date": {"$gte": since}}, {"_id": 0, "item_type": 1, "item_id": 1, "qty": 1}).to_list(100000)
+    usage = {}
+    for t in txs:
+        usage[(t["item_type"], t["item_id"])] = usage.get((t["item_type"], t["item_id"]), 0) + t["qty"]
+    out = []
+    for kind, coll in (("material", db.raw_materials), ("product", db.products)):
+        for it in await coll.find(Q(bid, is_active={"$ne": False}), {"_id": 0}).to_list(10000):
+            stock, mn = float(it.get("stock") or 0), float(it.get("min_stock") or 0)
+            if stock > mn:
+                continue
+            daily = usage.get((kind, it["id"]), 0) / 30.0
+            target = max(mn + daily * cover_days, mn * 2)
+            suggested = max(target - stock, 0)
+            cf = float(it.get("conversion_factor") or 1) if kind == "material" else 1
+            unit_cost = (float(it.get("avg_price") or it.get("last_price") or 0) / cf) if kind == "material" else float(it.get("avg_hpp") or 0)
+            out.append({"item_type": kind, "item_id": it["id"], "name": it["name"], "code": it.get("code") or it.get("sku"), "unit": it.get("usage_unit") if kind == "material" else it.get("unit"),
+                        "stock": stock, "min_stock": mn, "avg_daily_usage": round(daily, 3), "days_left": round(stock / daily, 1) if daily > 0 else None,
+                        "suggested_qty": round(suggested, 2), "suggested_purchase_qty": round(suggested / cf, 3) if kind == "material" else None, "purchase_unit": it.get("purchase_unit") if kind == "material" else None,
+                        "estimated_cost": round(suggested * unit_cost, 2), "severity": "critical" if stock <= 0 else "low", "action": "Beli bahan" if kind == "material" else "Produksi"})
+    out.sort(key=lambda x: (x["severity"] != "critical", x["days_left"] if x["days_left"] is not None else 1e9))
+    return {"date": today_str(), "count": len(out), "critical": sum(1 for x in out if x["severity"] == "critical"), "alerts": out}
 
 
 @router.get("/meta")

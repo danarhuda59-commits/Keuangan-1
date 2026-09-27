@@ -75,3 +75,33 @@ export function exportExcel(rows, columns, filename) {
 }
 
 export const printPage = () => window.print();
+
+export async function exportPDF(rows, columns, filename, meta = {}) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+  const cols = columns.filter((c) => !c.noExport);
+  const doc = new jsPDF({ orientation: cols.length > 7 ? "landscape" : "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  const fmt = (v, c) => (isNum(v) ? (c.pdfFormat === "rp" || /rp|harga|total|omzet|hpp|laba|nilai|biaya|nominal|bersih|dibayar|hutang|saldo|masuk|keluar/i.test(c.label) ? formatRp(v, !Number.isInteger(v)) : formatNum(v)) : String(v ?? ""));
+  const body = rows.map((r) => cols.map((c) => fmt(cellValue(r, c), c)));
+  const totals = cols.map((c, i) => {
+    if (i === 0) return "TOTAL";
+    if (/%|margin|markup|qty|stok|min|saldo setelah|transaksi|batch|bahan$|yield/i.test(c.label)) return "";
+    const vals = rows.map((r) => cellValue(r, c));
+    return vals.length && vals.every((v) => isNum(v) || v === "") ? fmt(vals.reduce((a, v) => a + (isNum(v) ? v : 0), 0), c) : "";
+  });
+  const periodText = meta.period?.start || meta.period?.end ? `Periode: ${formatDate(meta.period.start) || "awal"} s/d ${formatDate(meta.period.end) || "sekarang"}` : "Periode: semua data";
+  autoTable(doc, {
+    head: [cols.map((c) => c.label)], body, foot: [totals], showFoot: "everyPage", startY: 30, styles: { fontSize: 8, cellPadding: 1.8 },
+    headStyles: { fillColor: [15, 118, 110] }, footStyles: { fillColor: [241, 245, 249], textColor: [15, 23, 42], fontStyle: "bold" },
+    columnStyles: Object.fromEntries(cols.map((c, i) => [i, { halign: c.align === "right" ? "right" : "left" }])),
+    didDrawPage: (data) => {
+      doc.setFontSize(14); doc.setFont(undefined, "bold"); doc.text(meta.business || "Laporan", 14, 14);
+      doc.setFontSize(10); doc.setFont(undefined, "normal"); doc.text(meta.title || filename, 14, 20); doc.text(periodText, 14, 25);
+      doc.setFontSize(8); doc.text(`Dicetak ${new Date().toLocaleString("id-ID")} · Hal ${data.pageNumber}`, pageW - 14, 14, { align: "right" });
+      doc.text(`${rows.length} baris`, pageW - 14, 20, { align: "right" });
+    },
+  });
+  doc.save(`${filename}.pdf`);
+}

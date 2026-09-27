@@ -220,6 +220,43 @@ async def dashboard(user=Depends(current_user), start: str = "", end: str = ""):
     }
 
 
+@router.get("/dashboard/material-cost-trend")
+async def material_cost_trend(user=Depends(current_user)):
+    """Compare latest material price this month vs last month (from price history) + purchase spend."""
+    bid = user["business_id"]
+    today = ddate.fromisoformat(today_str())
+    cur_start = today.replace(day=1)
+    prev_end = cur_start - timedelta(days=1)
+    prev_start = prev_end.replace(day=1)
+    mats = await db.raw_materials.find(Q(bid), {"_id": 0}).to_list(5000)
+    hist = await db.material_price_history.find({"business_id": bid}, {"_id": 0}).sort([("date", 1), ("created_at", 1)]).to_list(100000)
+    by_mat = defaultdict(list)
+    for h in hist:
+        by_mat[h["material_id"]].append(h)
+    rows = []
+    for m in mats:
+        hs = by_mat.get(m["id"], [])
+        now_p = float(m.get("last_price") or 0)
+        cutoff = (today - timedelta(days=30)).isoformat()
+        prev_p = next((h["price"] for h in reversed(hs) if h["date"] <= cutoff), None)
+        if prev_p is None and len(hs) >= 2 and hs[0]["date"] < hs[-1]["date"]:
+            prev_p = hs[0]["price"]
+        if now_p is None or prev_p is None:
+            continue
+        change = now_p - prev_p
+        rows.append({"material_id": m["id"], "name": m["name"], "unit": m.get("purchase_unit"), "prev_price": prev_p, "current_price": now_p, "change": round(change, 2),
+                     "change_pct": round(safe_div(change, prev_p) * 100, 2), "stock": m.get("stock", 0), "usage_unit": m.get("usage_unit")})
+    rows.sort(key=lambda r: -abs(r["change_pct"]))
+    _, _, cur_pur = await period_data(bid, cur_start.isoformat(), today.isoformat())
+    _, _, prev_pur = await period_data(bid, prev_start.isoformat(), prev_end.isoformat())
+    cur_spend, prev_spend = sum(p["total"] for p in cur_pur), sum(p["total"] for p in prev_pur)
+    up = [r for r in rows if r["change_pct"] > 0]
+    down = [r for r in rows if r["change_pct"] < 0]
+    return {"period": {"current": cur_start.isoformat(), "previous": prev_start.isoformat()}, "materials": rows, "up_count": len(up), "down_count": len(down), "stable_count": len(rows) - len(up) - len(down),
+            "avg_change_pct": round(sum(r["change_pct"] for r in rows) / len(rows), 2) if rows else None,
+            "purchase_spend_current": round(cur_spend, 2), "purchase_spend_previous": round(prev_spend, 2), "purchase_spend_change_pct": round(safe_div(cur_spend - prev_spend, prev_spend) * 100, 2) if prev_spend else None}
+
+
 @router.get("/reports/profit-loss")
 async def report_pl(user=Depends(current_user), start: str = "", end: str = ""):
     sales, expenses, purchases = await period_data(user["business_id"], start, end)

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Package, Boxes, Truck, Tags, Ruler, BookOpen, Factory, Warehouse, ShoppingCart, Receipt, Wallet, Landmark, TrendingUp, ArrowLeftRight, Target, FileBarChart, Settings, LogOut, Menu, X, Calculator, Sun, Moon } from "lucide-react";
+import { NavLink, Outlet, useNavigate, Link } from "react-router-dom";
+import { LayoutDashboard, Package, Boxes, Truck, Tags, Ruler, BookOpen, Factory, Warehouse, ShoppingCart, Receipt, Wallet, Landmark, TrendingUp, ArrowLeftRight, Target, FileBarChart, Settings, LogOut, Menu, X, Calculator, Sun, Moon, Bell } from "lucide-react";
 import { useAuth } from "../lib/auth";
+import { useApi } from "../lib/hooks";
 import { cn } from "../lib/utils";
 
 const NAV = [
@@ -53,6 +54,7 @@ export default function Layout() {
   }, []);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const { user, logout } = useAuth();
+  const { data: alerts } = useApi("/alerts/stock");
   const nav = useNavigate();
   const toggleDark = () => {
     const d = !dark;
@@ -75,6 +77,10 @@ export default function Layout() {
           <button className="rounded-md p-2 hover:bg-muted lg:hidden" onClick={() => setOpen(true)} data-testid="sidebar-toggle-btn"><Menu className="h-5 w-5" /></button>
           <div className="hidden lg:block text-sm text-muted-foreground">Business Finance & HPP Management System</div>
           <div className="flex items-center gap-2">
+            <Link to="/" className="relative rounded-md p-2 hover:bg-muted" title="Notifikasi stok" data-testid="stock-alert-bell">
+              <Bell className="h-4 w-4" />
+              {alerts?.count > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[10px] font-bold text-white" data-testid="stock-alert-count">{alerts.count}</span>}
+            </Link>
             <button onClick={toggleDark} className="rounded-md p-2 hover:bg-muted" data-testid="theme-toggle-btn">{dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium" data-testid="header-user-name">{user?.name}</p>

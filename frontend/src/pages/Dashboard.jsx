@@ -19,6 +19,8 @@ const Panel = ({ title, children, testId }) => (
 export default function Dashboard() {
   const period = usePeriod("month");
   const { data, loading } = useApi(`/dashboard${qs(period.range)}`, [period.range.start, period.range.end]);
+  const { data: alerts } = useApi("/alerts/stock");
+  const { data: trend } = useApi("/dashboard/material-cost-trend");
   const d = data || {};
   const p = d.period || {};
   const daily = (d.daily || []).map((x) => ({ ...x, label: formatDate(x.date).slice(0, 6) }));
@@ -88,15 +90,40 @@ export default function Dashboard() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Panel title={<span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-orange-500" />Bahan Baku Stok Rendah ({(d.low_stock_materials || []).length})</span>} testId="low-stock-materials">
-              {(d.low_stock_materials || []).length === 0 ? <p className="text-sm text-muted-foreground">Semua stok bahan di atas minimum.</p> : (
-                <ul className="divide-y text-sm">{d.low_stock_materials.map((m) => <li key={m.id} className="flex justify-between py-2"><Link to="/bahan" className="hover:underline">{m.name}</Link><span className="num text-orange-600">{formatNum(m.stock)} / min {formatNum(m.min_stock)} {m.unit}</span></li>)}</ul>
+            <Panel title={<span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-orange-500" />Notifikasi Stok Hari Ini ({alerts?.count ?? 0})</span>} testId="stock-alerts">
+              {!alerts?.alerts?.length ? <p className="text-sm text-muted-foreground">Semua stok bahan & produk di atas minimum.</p> : (
+                <div className="table-wrap"><table>
+                  <thead><tr><th>Item</th><th className="text-right">Stok / Min</th><th className="text-right">Pakai/hari</th><th className="text-right">Sisa hari</th><th className="text-right">Saran</th><th className="text-right">Est. biaya</th></tr></thead>
+                  <tbody>{alerts.alerts.map((a) => (
+                    <tr key={a.item_id} data-testid="stock-alert-row">
+                      <td><Link to={a.item_type === "material" ? "/bahan" : "/produk"} className="font-medium hover:underline">{a.name}</Link><br /><span className={a.severity === "critical" ? "badge-low" : "badge-muted"}>{a.severity === "critical" ? "Habis" : "Rendah"} · {a.action}</span></td>
+                      <td className="text-right num text-orange-600">{formatNum(a.stock)} / {formatNum(a.min_stock)} {a.unit}</td>
+                      <td className="text-right num">{formatNum(a.avg_daily_usage)}</td>
+                      <td className="text-right num">{a.days_left === null ? "—" : `${formatNum(a.days_left, 1)} hr`}</td>
+                      <td className="text-right num font-semibold">{formatNum(a.suggested_qty)} {a.unit}{a.suggested_purchase_qty != null && <><br /><span className="text-xs text-muted-foreground">≈ {formatNum(a.suggested_purchase_qty)} {a.purchase_unit}</span></>}</td>
+                      <td className="text-right num">{formatRp(a.estimated_cost)}</td>
+                    </tr>))}</tbody>
+                </table></div>
               )}
+              <p className="mt-2 text-xs text-muted-foreground">Saran = kebutuhan {14} hari (rata-rata pemakaian 30 hari terakhir) + minimum stok − stok saat ini.</p>
             </Panel>
-            <Panel title={<span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4 text-orange-500" />Produk Stok Rendah ({(d.low_stock_products || []).length})</span>} testId="low-stock-products">
-              {(d.low_stock_products || []).length === 0 ? <p className="text-sm text-muted-foreground">Semua stok produk di atas minimum.</p> : (
-                <ul className="divide-y text-sm">{d.low_stock_products.map((m) => <li key={m.id} className="flex justify-between py-2"><Link to="/produk" className="hover:underline">{m.name}</Link><span className="num text-orange-600">{formatNum(m.stock)} / min {formatNum(m.min_stock)} {m.unit}</span></li>)}</ul>
-              )}
+            <Panel title={<span className="flex items-center gap-2"><TrendingUp className="h-4 w-4 text-teal-600" />Analisis Biaya Bahan (vs 30 hari lalu)</span>} testId="material-cost-trend">
+              {!trend ? <p className="text-sm text-muted-foreground">Memuat...</p> : (<>
+                <div className="mb-3 grid grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-lg bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Naik</p><p className="num font-semibold text-red-600" data-testid="trend-up">{trend.up_count}</p></div>
+                  <div className="rounded-lg bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Turun</p><p className="num font-semibold text-emerald-700" data-testid="trend-down">{trend.down_count}</p></div>
+                  <div className="rounded-lg bg-muted/50 p-2"><p className="text-xs text-muted-foreground">Rata-rata perubahan</p><p className="num font-semibold" data-testid="trend-avg">{trend.avg_change_pct === null ? "—" : formatPct(trend.avg_change_pct)}</p></div>
+                </div>
+                <p className="mb-3 text-xs text-muted-foreground">Belanja bahan bulan ini {formatRp(trend.purchase_spend_current)} vs bulan lalu {formatRp(trend.purchase_spend_previous)}{trend.purchase_spend_change_pct !== null && ` (${trend.purchase_spend_change_pct > 0 ? "+" : ""}${formatNum(trend.purchase_spend_change_pct, 1)}%)`}.</p>
+                {trend.materials.length === 0 ? <p className="text-sm text-muted-foreground">Belum ada histori harga pembanding. Data akan muncul setelah ada minimal dua harga pada tanggal berbeda.</p> : (
+                  <div className="table-wrap"><table>
+                    <thead><tr><th>Bahan</th><th className="text-right">Harga lalu</th><th className="text-right">Harga kini</th><th className="text-right">Perubahan</th></tr></thead>
+                    <tbody>{trend.materials.slice(0, 10).map((m) => (
+                      <tr key={m.material_id} data-testid="trend-row"><td>{m.name}</td><td className="text-right num">{formatRp(m.prev_price)}/{m.unit}</td><td className="text-right num">{formatRp(m.current_price)}/{m.unit}</td>
+                        <td className={`text-right num font-semibold ${m.change_pct > 0 ? "text-red-600" : m.change_pct < 0 ? "text-emerald-700" : ""}`}>{m.change_pct > 0 ? "+" : ""}{formatNum(m.change_pct, 1)}%</td></tr>))}</tbody>
+                  </table></div>
+                )}
+              </>)}
             </Panel>
           </div>
         </div>

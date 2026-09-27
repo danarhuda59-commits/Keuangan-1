@@ -311,14 +311,14 @@ async def seed_demo(user=Depends(current_user)):
         await db.suppliers.insert_one(dict(d))
         sups.append(d)
     mat_defs = [("Tapioka", "Bahan Utama", "kg", "gram", 1000, 9500, 5000, 0), ("Tepung Terigu", "Bahan Utama", "kg", "gram", 1000, 12000, 3000, 0), ("Bawang Putih", "Bumbu & Rempah", "kg", "gram", 1000, 35000, 500, 0),
-                ("Garam", "Bumbu & Rempah", "kg", "gram", 1000, 8000, 500, 0), ("Penyedap Rasa", "Bumbu & Rempah", "kg", "gram", 1000, 45000, 300, 0), ("Cabai Bubuk", "Bumbu & Rempah", "kg", "gram", 1000, 80000, 300, 0),
+                ("Garam", "Bumbu & Rempah", "kg", "gram", 1000, 8000, 500, 0), ("Penyedap Rasa", "Bumbu & Rempah", "kg", "gram", 1000, 45000, 300, 0), ("Cabai Bubuk", "Bumbu & Rempah", "kg", "gram", 1000, 80000, 1200, 0),
                 ("Minyak Goreng", "Bahan Pelengkap", "liter", "ml", 1000, 17000, 2000, 0), ("Daun Bawang", "Bahan Pelengkap", "kg", "gram", 1000, 20000, 300, 0), ("Air", "Bahan Pelengkap", "liter", "ml", 1000, 500, 5000, 0),
                 ("Cup Kemasan 300ml", "Kemasan", "pack", "pcs", 50, 35000, 100, 1), ("Stiker Label", "Kemasan", "lembar", "pcs", 12, 6000, 100, 1), ("Sambal Sachet", "Bahan Pelengkap", "pack", "pcs", 100, 45000, 100, 1)]
     mats = {}
     for name, cat, pu, uu, cf, price, minq, sup in mat_defs:
         m = await create_material(MaterialIn(name=name, category_id=cats.get(cat), purchase_unit=pu, usage_unit=uu, conversion_factor=cf, last_price=price, supplier_id=sups[sup]["id"], min_stock=minq), user)
         mats[name] = m
-    prod_defs = [("Baso Aci Original", "Makanan", "cup", 12000, 10), ("Cireng Bumbu Rujak", "Frozen Food", "pack", 15000, 10), ("Seblak Kering Pedas", "Snack", "pack", 10000, 15)]
+    prod_defs = [("Baso Aci Original", "Makanan", "cup", 12000, 10), ("Cireng Bumbu Rujak", "Frozen Food", "pack", 15000, 10), ("Seblak Kering Pedas", "Snack", "pack", 10000, 25)]
     prods = {}
     for name, cat, unit, price, minq in prod_defs:
         prods[name] = await create_product(ProductIn(name=name, category_id=cats.get(cat), unit=unit, selling_price=price, min_stock=minq, description="Produk demo"), user)

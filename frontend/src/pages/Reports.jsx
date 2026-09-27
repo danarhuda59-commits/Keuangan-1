@@ -3,7 +3,7 @@ import { Printer } from "lucide-react";
 import { useApi, qs } from "../lib/hooks";
 import { formatRp, formatNum, formatPct, formatDate, printPage } from "../lib/format";
 import { Button } from "../components/ui/button";
-import { PageHeader, DataTable, PeriodFilter, usePeriod, StatCard } from "../components/common";
+import { PageHeader, DataTable, PeriodFilter, usePeriod, StatCard, ReportContext } from "../components/common";
 import { cn } from "../lib/utils";
 
 const TYPES = [
@@ -18,7 +18,7 @@ const dt = { key: "date", label: "Tanggal", render: (r) => formatDate(r.date) };
 
 const Section = ({ title, children }) => <div className="mb-8"><h3 className="mb-3 font-heading font-semibold">{title}</h3>{children}</div>;
 
-function Body({ type, range }) {
+function Body({ type, range, title }) {
   const url = { penjualan: "/reports/sales", pembelian: "/reports/purchases", pengeluaran: "/reports/expenses", hpp: "/reports/hpp", stok: "/inventory/summary", produksi: "/reports/production", keuangan: "/reports/profit-loss", supplier: "/reports/suppliers", produk: "/reports/products", channel: "/reports/channels", harga: "/reports/price-history" }[type];
   const { data: d, loading } = useApi(`${url}${qs(range)}`, [range.start, range.end, type]);
   if (!d || loading) return <p className="text-sm text-muted-foreground">Memuat...</p>;
@@ -80,7 +80,7 @@ export default function Reports() {
       <div className="mb-6 flex flex-wrap gap-1 no-print" data-testid="report-tabs">
         {TYPES.map((t) => <Link key={t.key} to={`/laporan/${t.key}`} data-testid={`report-tab-${t.key}`} className={cn("rounded-full border px-3 py-1 text-xs font-medium transition-colors", t.key === cur.key ? "bg-slate-900 text-white border-slate-900" : "hover:bg-muted")}>{t.label}</Link>)}
       </div>
-      <Body type={cur.key} range={period.range} />
+      <ReportContext.Provider value={{ title: `Laporan ${cur.label}`, period: period.range }}><Body type={cur.key} range={period.range} /></ReportContext.Provider>
     </div>
   );
 }

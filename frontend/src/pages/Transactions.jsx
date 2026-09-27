@@ -28,6 +28,7 @@ export function Purchases() {
   const [saving, setSaving] = useState(false);
   const matMap = Object.fromEntries((materials || []).map((m) => [m.id, m]));
   const newForm = () => ({ date: todayISO(), supplier_id: "", items: [{ material_id: "", qty: "", unit: "", price: "", discount: 0 }], discount: 0, extra_cost: 0, payment_method: "Tunai", payment_status: "paid", cash_account_id: accounts?.[0]?.id || "", notes: "" });
+  const editForm = (r) => ({ id: r.id, number: r.number, date: r.date, supplier_id: r.supplier_id || "", items: r.items.map((it) => ({ material_id: it.material_id, qty: it.qty, unit: it.unit, price: it.price, discount: it.discount })), discount: r.discount, extra_cost: r.extra_cost, payment_method: r.payment_method, payment_status: r.payment_status === "partial" ? "unpaid" : r.payment_status, cash_account_id: r.cash_account_id || accounts?.[0]?.id || "", notes: r.notes, was_partial: r.payment_status === "partial" });
   const setItem = (i, patch) => setForm({ ...form, items: form.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
   const subtotal = form ? form.items.reduce((a, it) => a + (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) - (parseFloat(it.discount) || 0), 0) : 0;
   const total = subtotal - (parseFloat(form?.discount) || 0) + (parseFloat(form?.extra_cost) || 0);
@@ -35,8 +36,9 @@ export function Purchases() {
     if (form.items.some((it) => !it.material_id || !(parseFloat(it.qty) > 0))) return toast.error("Lengkapi bahan dan qty (> 0) pada setiap baris");
     setSaving(true);
     try {
-      await api.post("/purchases", { ...form, supplier_id: form.supplier_id || null, cash_account_id: form.cash_account_id || null, discount: parseFloat(form.discount || 0), extra_cost: parseFloat(form.extra_cost || 0), items: form.items.map((it) => ({ material_id: it.material_id, qty: parseFloat(it.qty), unit: it.unit || null, price: parseFloat(it.price || 0), discount: parseFloat(it.discount || 0) })) });
-      toast.success("Pembelian tersimpan: stok & harga bahan diperbarui"); setForm(null); reload();
+      const body = { ...form, supplier_id: form.supplier_id || null, cash_account_id: form.cash_account_id || null, discount: parseFloat(form.discount || 0), extra_cost: parseFloat(form.extra_cost || 0), items: form.items.map((it) => ({ material_id: it.material_id, qty: parseFloat(it.qty), unit: it.unit || null, price: parseFloat(it.price || 0), discount: parseFloat(it.discount || 0) })) };
+      if (form.id) await api.put(`/purchases/${form.id}`, body); else await api.post("/purchases", body);
+      toast.success(form.id ? "Pembelian diperbarui: stok & kas dihitung ulang" : "Pembelian tersimpan: stok & harga bahan diperbarui"); setForm(null); reload();
     } catch (e) { toast.error(errMsg(e)); } finally { setSaving(false); }
   };
   const doPay = async () => {
@@ -51,10 +53,11 @@ export function Purchases() {
       <DataTable testId="purchases-table" filename="pembelian" rows={rows} loading={loading} searchKeys={["number", "supplier_name"]} columns={[
         { key: "number", label: "Nomor" }, { key: "date", label: "Tanggal", render: (r) => formatDate(r.date) }, { key: "supplier_name", label: "Supplier" }, { label: "Item", key: (r) => r.items.map((i) => `${i.material_name} ${formatNum(i.qty)} ${i.unit}`).join(", "), className: "max-w-xs truncate" },
         { key: "total", label: "Total", align: "right", render: (r) => formatRp(r.total) }, { key: "paid_amount", label: "Dibayar", align: "right", render: (r) => formatRp(r.paid_amount) }, { key: "payment_method", label: "Metode" }, { key: "payment_status", label: "Status", render: (r) => <PayBadge s={r.payment_status} /> },
-        { label: "Aksi", noExport: true, align: "right", render: (r) => <div className="flex justify-end gap-1">{r.payment_status !== "paid" && <Button variant="ghost" size="sm" title="Bayar" onClick={() => setPay({ id: r.id, amount: r.total - (r.paid_amount || 0), cash_account_id: accounts?.[0]?.id || "", date: todayISO() })} data-testid="purchase-pay-btn"><Banknote className="h-4 w-4 text-emerald-600" /></Button>}<Button variant="ghost" size="sm" onClick={() => setDetail(r)} data-testid="purchase-detail-btn"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" className="text-red-600" onClick={() => setDel(r)} data-testid="purchase-delete-btn"><Trash2 className="h-4 w-4" /></Button></div> },
+        { label: "Aksi", noExport: true, align: "right", render: (r) => <div className="flex justify-end gap-1">{r.payment_status !== "paid" && <Button variant="ghost" size="sm" title="Bayar" onClick={() => setPay({ id: r.id, amount: r.total - (r.paid_amount || 0), cash_account_id: accounts?.[0]?.id || "", date: todayISO() })} data-testid="purchase-pay-btn"><Banknote className="h-4 w-4 text-emerald-600" /></Button>}<Button variant="ghost" size="sm" onClick={() => setDetail(r)} data-testid="purchase-detail-btn"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => setForm(editForm(r))} data-testid="purchase-edit-btn"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="sm" className="text-red-600" onClick={() => setDel(r)} data-testid="purchase-delete-btn"><Trash2 className="h-4 w-4" /></Button></div> },
       ]} />
-      <Modal open={!!form} onClose={() => setForm(null)} title="Pembelian Bahan" wide footer={<><Button variant="outline" onClick={() => setForm(null)}>Batal</Button><Button onClick={save} disabled={saving} data-testid="purchase-save-btn">Simpan Pembelian</Button></>}>
+      <Modal open={!!form} onClose={() => setForm(null)} title={form?.id ? `Edit Pembelian ${form.number}` : "Pembelian Bahan"} description={form?.id ? "Stok, histori harga, dan kas dari pembelian ini akan dihitung ulang sesuai data baru." : undefined} wide footer={<><Button variant="outline" onClick={() => setForm(null)}>Batal</Button><Button onClick={save} disabled={saving} data-testid="purchase-save-btn">{form?.id ? "Simpan Perubahan" : "Simpan Pembelian"}</Button></>}>
         {form && <>
+          {form.was_partial && <p className="rounded-md bg-orange-50 p-2 text-xs text-orange-700">Pembelian ini sebelumnya dibayar sebagian. Pembayaran lama akan dihapus; pilih status Lunas atau catat ulang pembayaran setelah menyimpan.</p>}
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Tanggal"><TextInput type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} data-testid="purchase-date-input" /></Field>
             <Field label="Supplier"><SelectInput value={form.supplier_id} onChange={(v) => setForm({ ...form, supplier_id: v })} options={(suppliers || []).map((s) => ({ value: s.id, label: s.name }))} data-testid="purchase-supplier-select" /></Field>
@@ -114,6 +117,7 @@ export function Sales() {
   const [saving, setSaving] = useState(false);
   const prodMap = Object.fromEntries((products || []).map((p) => [p.id, p]));
   const newForm = () => ({ date: todayISO(), channel: "Offline", items: [{ product_id: "", qty: 1, price: "", discount: 0 }], discount: 0, platform_fee: 0, service_fee: 0, other_fee: 0, payment_method: "Tunai", cash_account_id: accounts?.[0]?.id || "", customer: "", notes: "" });
+  const editForm = (r) => ({ id: r.id, number: r.number, date: r.date, channel: r.channel, items: r.items.map((it) => ({ product_id: it.product_id, qty: it.qty, price: it.price, discount: it.discount })), discount: r.discount, platform_fee: r.platform_fee, service_fee: r.service_fee, other_fee: r.other_fee, payment_method: r.payment_method, cash_account_id: r.cash_account_id || accounts?.[0]?.id || "", customer: r.customer, notes: r.notes });
   const setItem = (i, patch) => setForm({ ...form, items: form.items.map((it, j) => (j === i ? { ...it, ...patch } : it)) });
   const gross = form ? form.items.reduce((a, it) => a + (parseFloat(it.qty) || 0) * (parseFloat(it.price) || 0) - (parseFloat(it.discount) || 0), 0) : 0;
   const total = gross - (parseFloat(form?.discount) || 0);
@@ -123,8 +127,9 @@ export function Sales() {
     if (form.items.some((it) => !it.product_id || !(parseFloat(it.qty) > 0))) return toast.error("Lengkapi produk dan qty (> 0) pada setiap baris");
     setSaving(true);
     try {
-      await api.post("/sales", { ...form, cash_account_id: form.cash_account_id || null, discount: parseFloat(form.discount || 0), platform_fee: parseFloat(form.platform_fee || 0), service_fee: parseFloat(form.service_fee || 0), other_fee: parseFloat(form.other_fee || 0), items: form.items.map((it) => ({ product_id: it.product_id, qty: parseFloat(it.qty), price: parseFloat(it.price || 0), discount: parseFloat(it.discount || 0) })) });
-      toast.success("Penjualan tersimpan: stok produk berkurang, kas bertambah"); setForm(null); reload();
+      const body = { ...form, cash_account_id: form.cash_account_id || null, discount: parseFloat(form.discount || 0), platform_fee: parseFloat(form.platform_fee || 0), service_fee: parseFloat(form.service_fee || 0), other_fee: parseFloat(form.other_fee || 0), items: form.items.map((it) => ({ product_id: it.product_id, qty: parseFloat(it.qty), price: parseFloat(it.price || 0), discount: parseFloat(it.discount || 0) })) };
+      if (form.id) await api.put(`/sales/${form.id}`, body); else await api.post("/sales", body);
+      toast.success(form.id ? "Penjualan diperbarui: stok & kas dihitung ulang" : "Penjualan tersimpan: stok produk berkurang, kas bertambah"); setForm(null); reload();
     } catch (e) { toast.error(errMsg(e)); } finally { setSaving(false); }
   };
   const remove = async () => { try { await api.delete(`/sales/${del.id}`); toast.success("Penjualan dibatalkan, stok dikembalikan"); setDel(null); reload(); } catch (e) { toast.error(errMsg(e)); } };
@@ -137,9 +142,9 @@ export function Sales() {
         { key: "number", label: "Nomor" }, { key: "date", label: "Tanggal", render: (r) => formatDate(r.date) }, { key: "channel", label: "Channel", render: (r) => <span className="badge-muted">{r.channel}</span> }, { label: "Produk", key: (r) => r.items.map((i) => `${i.product_name} ×${formatNum(i.qty)}`).join(", "), className: "max-w-xs truncate" },
         { key: "qty_total", label: "Qty", align: "right" }, { key: "total", label: "Total", align: "right", render: (r) => formatRp(r.total) }, { label: "Biaya", align: "right", key: (r) => formatRp(r.platform_fee + r.service_fee + r.other_fee) }, { key: "net_total", label: "Bersih", align: "right", render: (r) => formatRp(r.net_total) },
         { key: "total_hpp", label: "HPP", align: "right", render: (r) => formatRp(r.total_hpp) }, { key: "profit", label: "Laba", align: "right", render: (r) => <span className={r.profit >= 0 ? "text-emerald-700" : "text-red-600"}>{formatRp(r.profit)}</span> },
-        { label: "Aksi", noExport: true, align: "right", render: (r) => <div className="flex justify-end gap-1"><Button variant="ghost" size="sm" onClick={() => setDetail(r)} data-testid="sale-detail-btn"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" className="text-red-600" onClick={() => setDel(r)} data-testid="sale-delete-btn"><Trash2 className="h-4 w-4" /></Button></div> },
+        { label: "Aksi", noExport: true, align: "right", render: (r) => <div className="flex justify-end gap-1"><Button variant="ghost" size="sm" onClick={() => setDetail(r)} data-testid="sale-detail-btn"><Eye className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={() => setForm(editForm(r))} data-testid="sale-edit-btn"><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="sm" className="text-red-600" onClick={() => setDel(r)} data-testid="sale-delete-btn"><Trash2 className="h-4 w-4" /></Button></div> },
       ]} />
-      <Modal open={!!form} onClose={() => setForm(null)} title="Transaksi Penjualan" wide footer={<><Button variant="outline" onClick={() => setForm(null)}>Batal</Button><Button onClick={save} disabled={saving} data-testid="sale-save-btn">Simpan Penjualan</Button></>}>
+      <Modal open={!!form} onClose={() => setForm(null)} title={form?.id ? `Edit Penjualan ${form.number}` : "Transaksi Penjualan"} description={form?.id ? "Stok produk dan kas dari penjualan ini akan dihitung ulang sesuai data baru." : undefined} wide footer={<><Button variant="outline" onClick={() => setForm(null)}>Batal</Button><Button onClick={save} disabled={saving} data-testid="sale-save-btn">{form?.id ? "Simpan Perubahan" : "Simpan Penjualan"}</Button></>}>
         {form && <>
           <div className="grid gap-4 sm:grid-cols-4">
             <Field label="Tanggal"><TextInput type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} data-testid="sale-date-input" /></Field>
@@ -150,7 +155,7 @@ export function Sales() {
           <ItemsTable headers={["Produk", "Qty", { label: "Harga", right: true }, { label: "Diskon", right: true }, { label: "Subtotal", right: true }, { label: "HPP", right: true }, ""]}>
             {form.items.map((it, i) => { const p = prodMap[it.product_id]; return (
               <tr key={i} data-testid="sale-item-row">
-                <td className="min-w-[200px]"><SelectInput value={it.product_id} onChange={(v) => setItem(i, { product_id: v, price: prodMap[v]?.selling_price ?? "" })} options={(products || []).map((p) => ({ value: p.id, label: `${p.name} (stok ${formatNum(p.stock)})` }))} className="h-9" data-testid="sale-item-product" />{p && parseFloat(it.qty) > p.stock && <p className="text-[11px] text-red-600">Stok tidak cukup (tersedia {formatNum(p.stock)})</p>}</td>
+                <td className="min-w-[200px]"><SelectInput value={it.product_id} onChange={(v) => setItem(i, { product_id: v, price: prodMap[v]?.selling_price ?? "" })} options={(products || []).map((p) => ({ value: p.id, label: `${p.name} (stok ${formatNum(p.stock)})` }))} className="h-9" data-testid="sale-item-product" />{p && !form.id && parseFloat(it.qty) > p.stock && <p className="text-[11px] text-red-600">Stok tidak cukup (tersedia {formatNum(p.stock)})</p>}</td>
                 <td className="w-24"><NumberInput value={it.qty} onChange={(v) => setItem(i, { qty: v })} className="h-9" data-testid="sale-item-qty" /></td>
                 <td className="w-32"><NumberInput value={it.price} onChange={(v) => setItem(i, { price: v })} className="h-9" data-testid="sale-item-price" /></td>
                 <td className="w-28"><NumberInput value={it.discount} onChange={(v) => setItem(i, { discount: v })} className="h-9" data-testid="sale-item-discount" /></td>

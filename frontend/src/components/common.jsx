@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
-import { Search, Download, FileSpreadsheet, Printer, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { createContext, useContext, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Search, Download, FileSpreadsheet, FileText, Printer, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "../components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
-import { exportCSV, exportExcel, printPage, PERIODS, periodRange } from "../lib/format";
+import { exportCSV, exportExcel, exportPDF, printPage, PERIODS, periodRange } from "../lib/format";
+import { useAuth } from "../lib/auth";
 import { cn } from "../lib/utils";
 
 export const PageHeader = ({ title, subtitle, actions, testId }) => (
@@ -80,15 +82,23 @@ export const ConfirmDialog = ({ open, onClose, onConfirm, title = "Konfirmasi", 
 
 export const EmptyState = ({ text = "Belum ada data" }) => <div className="py-10 text-center text-sm text-muted-foreground" data-testid="empty-state">{text}</div>;
 
-export const ExportButtons = ({ rows, columns, filename }) => (
-  <div className="flex gap-1 no-print">
-    <Button variant="outline" size="sm" data-testid="export-csv-btn" onClick={() => exportCSV(rows, columns, filename)}><Download className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">CSV</span></Button>
-    <Button variant="outline" size="sm" data-testid="export-excel-btn" onClick={() => exportExcel(rows, columns, filename)}><FileSpreadsheet className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Excel</span></Button>
-    <Button variant="outline" size="sm" data-testid="print-btn" onClick={printPage}><Printer className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Print</span></Button>
-  </div>
-);
+export const ReportContext = createContext({ title: "", period: null });
 
-export function DataTable({ columns, rows = [], searchKeys, pageSize = 10, filename = "data", testId = "data-table", toolbar, emptyText, loading, onRowClick, footer }) {
+export const ExportButtons = ({ rows, columns, filename, title }) => {
+  const ctx = useContext(ReportContext);
+  const { business } = useAuth();
+  const pdf = () => exportPDF(rows, columns, filename, { business: business?.name, title: title || ctx.title || filename, period: ctx.period }).catch((e) => toast.error(`PDF gagal: ${e.message}`));
+  return (
+    <div className="flex gap-1 no-print">
+      <Button variant="outline" size="sm" data-testid="export-csv-btn" onClick={() => exportCSV(rows, columns, filename)}><Download className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">CSV</span></Button>
+      <Button variant="outline" size="sm" data-testid="export-excel-btn" onClick={() => exportExcel(rows, columns, filename)}><FileSpreadsheet className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Excel</span></Button>
+      <Button variant="outline" size="sm" data-testid="export-pdf-btn" onClick={pdf}><FileText className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">PDF</span></Button>
+      <Button variant="outline" size="sm" data-testid="print-btn" onClick={printPage}><Printer className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Print</span></Button>
+    </div>
+  );
+};
+
+export function DataTable({ columns, rows = [], searchKeys, pageSize = 10, filename = "data", testId = "data-table", toolbar, emptyText, loading, onRowClick, footer, title }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const filtered = useMemo(() => {
@@ -106,7 +116,7 @@ export function DataTable({ columns, rows = [], searchKeys, pageSize = 10, filen
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
           <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Cari..." className="field-input pl-9" data-testid={`${testId}-search`} />
         </div>
-        <div className="flex flex-wrap items-center gap-2">{toolbar}<ExportButtons rows={filtered} columns={columns} filename={filename} /></div>
+        <div className="flex flex-wrap items-center gap-2">{toolbar}<ExportButtons rows={filtered} columns={columns} filename={filename} title={title} /></div>
       </div>
       <div className="table-wrap">
         <table>
