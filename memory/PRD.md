@@ -21,9 +21,16 @@ Aplikasi web functional untuk UMKM produksi makanan/F&B (generik): Bahasa Indone
 - Automated tests: `/app/backend/tests/test_hpp.py` (1/5/10/30/50 bahan, contoh spesifikasi 6.400/9.900/990, konversi, waste, yield 0, negatif) + `/app/backend/tests/backend_test.py` (43 kasus e2e, testing agent).
 - Import CSV/Excel: bahan, produk, supplier, resep, pembelian, penjualan (preview + validasi + konfirmasi). Backup/restore JSON. Audit log. Dark/light toggle.
 
+## Implemented (2026-06) — Iterasi 2
+- Export PDF native (jspdf + autotable) di semua tabel/laporan: header nama usaha, judul, periode; baris TOTAL diulang di setiap halaman (`lib/format.js exportPDF`, `ReportContext`).
+- Dashboard "Analisis Biaya Bahan": harga kini vs 30 hari lalu per bahan (% naik/turun), belanja bahan bulan ini vs bulan lalu (`GET /api/dashboard/material-cost-trend`).
+- Edit Pembelian & Penjualan langsung (`PUT /api/purchases/{id}`, `PUT /api/sales/{id}`): efek stok/kas/histori harga lama dibalik lalu diterapkan ulang, nomor tetap.
+- Notifikasi Stok harian (`GET /api/alerts/stock`): daftar bahan/produk di bawah minimum + saran qty pesan/produksi (14 hari cover dari rata-rata pemakaian 30 hari) + estimasi biaya; badge bel di header.
+- Tests: `/app/backend/tests/test_iteration2.py` (7 kasus, run with `-n0`).
+
 ## Backlog / Next
-- P1: Export PDF asli (saat ini Print → Save as PDF browser); edit pembelian/penjualan (saat ini batal+buat ulang); filter kategori pada laporan; pagination server-side untuk data besar.
-- P1: Laporan pemakaian bahan & waste per periode; analisis kenaikan biaya bahan (% vs bulan lalu) di dashboard.
+- P1: filter kategori pada laporan; pagination server-side untuk data besar; edit produksi.
+- P1: Laporan pemakaian bahan & waste per periode; email/WhatsApp notifikasi stok terjadwal.
 - P2: Multi-business per user, role permission granular, notifikasi stok rendah, foto bukti preview inline, template import pembelian multi-item.
 
 ## Test credentials
