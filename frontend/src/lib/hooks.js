@@ -8,6 +8,7 @@ export function useApi(url, deps = [], { enabled = true } = {}) {
   const reload = useCallback(async () => {
     if (!enabled || !url) return;
     setLoading(true);
+    setData(null);
     try {
       const { data } = await api.get(url);
       setData(data);

@@ -234,7 +234,7 @@ async def create_purchase(body: PurchaseIn, user=Depends(current_user)):
         await post_inventory(bid, "material", m["id"], it["qty_base"], "purchase", per_usage, "purchase", pid, f"Pembelian {number}", date, user=user)
         await db.raw_materials.update_one({"id": m["id"]}, {"$set": {"last_price": round(price_purchase_unit, 4), "avg_price": round(new_avg_usage * cf, 4), "updated_at": now_iso()}})
         await db.material_price_history.insert_one({"id": new_id(), "business_id": bid, "material_id": m["id"], "date": date, "price": round(price_purchase_unit, 4), "unit": m["purchase_unit"],
-                                                    "qty": it["qty"], "purchase_unit_qty": it["unit"], "supplier_id": body.supplier_id, "supplier_name": supplier["name"] if supplier else "", "purchase_id": pid, "source": "purchase", "created_at": now_iso()})
+                                                    "qty": it["qty"], "qty_unit": it["unit"], "supplier_id": body.supplier_id, "supplier_name": supplier["name"] if supplier else "", "purchase_id": pid, "source": "purchase", "created_at": now_iso()})
     paid_amount = total if body.payment_status == "paid" else 0
     if paid_amount > 0:
         await post_cash(bid, body.cash_account_id, "out", paid_amount, "purchase", "purchase", pid, f"Pembelian {number}" + (f" - {supplier['name']}" if supplier else ""), date)

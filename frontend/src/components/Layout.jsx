@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutDashboard, Package, Boxes, Truck, Tags, Ruler, BookOpen, Factory, Warehouse, ShoppingCart, Receipt, Wallet, Landmark, TrendingUp, ArrowLeftRight, Target, FileBarChart, Settings, LogOut, Menu, X, Calculator, Sun, Moon } from "lucide-react";
 import { useAuth } from "../lib/auth";
@@ -44,6 +44,13 @@ function Sidebar({ onNavigate }) {
 
 export default function Layout() {
   const [open, setOpen] = useState(false);
+  const [desktop, setDesktop] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const h = (e) => { setDesktop(e.matches); if (e.matches) setOpen(false); };
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const { user, logout } = useAuth();
   const nav = useNavigate();
@@ -55,8 +62,8 @@ export default function Layout() {
   };
   return (
     <div className="min-h-screen bg-background">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block no-print"><Sidebar /></aside>
-      {open && (
+      {desktop && <aside className="fixed inset-y-0 left-0 z-40 w-64 no-print"><Sidebar /></aside>}
+      {open && !desktop && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 shadow-xl"><Sidebar onNavigate={() => setOpen(false)} /></aside>

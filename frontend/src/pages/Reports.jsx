@@ -1,6 +1,8 @@
 import { useParams, Link } from "react-router-dom";
+import { Printer } from "lucide-react";
 import { useApi, qs } from "../lib/hooks";
-import { formatRp, formatNum, formatPct, formatDate } from "../lib/format";
+import { formatRp, formatNum, formatPct, formatDate, printPage } from "../lib/format";
+import { Button } from "../components/ui/button";
 import { PageHeader, DataTable, PeriodFilter, usePeriod, StatCard } from "../components/common";
 import { cn } from "../lib/utils";
 
@@ -19,7 +21,9 @@ const Section = ({ title, children }) => <div className="mb-8"><h3 className="mb
 function Body({ type, range }) {
   const url = { penjualan: "/reports/sales", pembelian: "/reports/purchases", pengeluaran: "/reports/expenses", hpp: "/reports/hpp", stok: "/inventory/summary", produksi: "/reports/production", keuangan: "/reports/profit-loss", supplier: "/reports/suppliers", produk: "/reports/products", channel: "/reports/channels", harga: "/reports/price-history" }[type];
   const { data: d, loading } = useApi(`${url}${qs(range)}`, [range.start, range.end, type]);
-  if (!d) return <p className="text-sm text-muted-foreground">Memuat...</p>;
+  if (!d || loading) return <p className="text-sm text-muted-foreground">Memuat...</p>;
+  const expectArray = ["stok", "supplier", "produk", "channel", "harga"].includes(type);
+  if (expectArray !== Array.isArray(d)) return <p className="text-sm text-muted-foreground">Memuat...</p>;
   switch (type) {
     case "penjualan": return (<>
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4"><StatCard label="Omzet bersih" value={formatRp(d.summary.net_sales)} tone="primary" /><StatCard label="HPP" value={formatRp(d.summary.hpp)} /><StatCard label="Laba kotor" value={formatRp(d.summary.gross_profit)} tone="good" /><StatCard label="Transaksi" value={d.summary.transactions} /></div>
@@ -72,7 +76,7 @@ export default function Reports() {
   const cur = TYPES.find((t) => t.key === type) || TYPES[0];
   return (
     <div data-testid="reports-page">
-      <PageHeader title={`Laporan ${cur.label}`} subtitle="Filter tanggal, cari, export CSV/Excel, dan print" actions={<PeriodFilter period={period} />} />
+      <PageHeader title={`Laporan ${cur.label}`} subtitle="Filter tanggal, cari, export CSV/Excel, dan print" actions={<><Button variant="outline" size="sm" onClick={printPage} data-testid="export-csv-btn"><Printer className="mr-1 h-4 w-4" />Print / PDF</Button><PeriodFilter period={period} /></>} />
       <div className="mb-6 flex flex-wrap gap-1 no-print" data-testid="report-tabs">
         {TYPES.map((t) => <Link key={t.key} to={`/laporan/${t.key}`} data-testid={`report-tab-${t.key}`} className={cn("rounded-full border px-3 py-1 text-xs font-medium transition-colors", t.key === cur.key ? "bg-slate-900 text-white border-slate-900" : "hover:bg-muted")}>{t.label}</Link>)}
       </div>
